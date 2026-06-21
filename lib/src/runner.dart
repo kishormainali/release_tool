@@ -6,14 +6,13 @@ import 'commands/version_command.dart';
 import 'commands/deploy_command.dart';
 import 'commands/update_command.dart';
 import 'commands/certificates_command.dart';
+import 'commands/upgrade_command.dart';
+import 'version.dart';
 
 /// The main command runner for the release_tool.
 class ReleaseToolCommandRunner extends CommandRunner<int> {
   /// The logger used for outputting information.
   final Logger logger;
-
-  /// The current version of the tool.
-  static const String packageVersion = '0.0.1';
 
   /// Creates a new [ReleaseToolCommandRunner].
   ReleaseToolCommandRunner({Logger? logger})
@@ -27,6 +26,7 @@ class ReleaseToolCommandRunner extends CommandRunner<int> {
     addCommand(VersionCommand(logger: this.logger));
     addCommand(DeployCommand(logger: this.logger));
     addCommand(UpdateCommand(logger: this.logger));
+    addCommand(UpgradeCommand(logger: this.logger));
     addCommand(CertificatesCommand(logger: this.logger));
   }
 

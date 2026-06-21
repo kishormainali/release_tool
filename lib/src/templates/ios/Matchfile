@@ -1,0 +1,9 @@
+# frozen_string_literal: true
+
+git_url(ENV['CERTIFICATE_GIT_URL'])
+git_branch(ENV['CERTIFICATE_GIT_BRANCH'])
+storage_mode('git')
+app_identifier(ENV['APP_IDENTIFIER'])
+clone_branch_directly(true)
+team_id(ENV['APP_STORE_TEAM_ID'])
+platform('ios')

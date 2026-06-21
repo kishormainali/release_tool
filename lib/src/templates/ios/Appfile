@@ -1,0 +1,2 @@
+app_identifier(ENV["APP_IDENTIFIER"]) # bundle identifier for app
+team_id(ENV["APPSTORE_TEAM_ID"])

@@ -1,0 +1,5 @@
+example/vendor/
+example/build/
+example/.dart_tool/
+example/ios/Pods/
+example/android/.gradle/

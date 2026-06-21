@@ -1,0 +1,349 @@
+# frozen_string_literal: true
+
+# Copyright (c) 2024.
+# Author: Kishor Mainali
+# Company: EB Pearls
+#
+
+require 'json'
+
+default_platform(:android)
+
+platform :android do
+  # prepare the environment
+  before_all do
+    @json_key = ENV['GOOGLE_PLAY_JSON_KEY_FILE']
+    @skip_play_store = ENV['SKIP_PLAY_STORE_CHECK']
+    @release_status = ENV['RELEASE_STATUS']
+    @app_package_name = ENV['PACKAGE_NAME']
+    @flutter_target = ENV['FLUTTER_TARGET']
+    @flutter_flavor = ENV['FLUTTER_FLAVOR']
+    @has_flavor = !@flutter_flavor.nil? && !@flutter_flavor.empty?
+    @dart_define = nil
+    if ENV['DART_DEFINE_FROM_FILE'] && !ENV['DART_DEFINE_FROM_FILE'].empty?
+      @dart_define = "--dart-define-from-file=#{ENV['DART_DEFINE_FROM_FILE']}"
+    end
+    @firebase_credentials = ENV['FIREBASE_SERVICE_JSON_FILE']
+    @firebase_app_id = ENV['FIREBASE_APP_ID']
+    @flutter_command = check_fvm
+    @firebase_testers_groups = ENV['FIREBASE_TESTERS_GROUPS']
+    @dart_defines_list = []
+    if ENV['DART_DEFINES'] && !ENV['DART_DEFINES'].empty?
+      begin
+        defines_map = JSON.parse(ENV['DART_DEFINES'])
+        if defines_map.is_a?(Hash)
+          defines_map.each do |k, v|
+            @dart_defines_list << "--dart-define=#{k}=#{v}"
+          end
+        elsif defines_map.is_a?(Array)
+          defines_map.each do |define|
+            @dart_defines_list << "--dart-define=#{define}"
+          end
+        end
+      rescue => e
+        UI.message("Error parsing DART_DEFINES: #{e}")
+      end
+    end
+  end
+
+  #---------------------------------------------#
+  #     UPLOAD BUILD FOR FIREBASE               #
+  #     APP DISTRIBUTION                        #
+  #---------------------------------------------#
+  desc 'Upload build to firebase'
+  lane :firebase do |options|
+    release = options[:release]
+
+    # 1. get latest version from firebase
+    version = get_firebase_version(release: release)
+    build_number = version[:build_number].to_i
+    build_version = version[:version].to_s
+
+    # 2. run flutter build
+    build_apk(
+      version: build_version,
+      build_number: build_number
+    )
+    # 3. upload to firebase
+    firebase_app_distribution(
+      app: @firebase_app_id,
+      service_credentials_file: @firebase_credentials,
+      android_artifact_type: 'APK',
+      android_artifact_path: @package_path,
+      groups: @firebase_testers_groups
+    )
+  end
+
+  #---------------------------------------------#
+  #     UPLOAD BUILD FOR PLAYSTORE              #
+  #---------------------------------------------#
+  desc 'Upload build to play-store'
+  lane :play_store do |options|
+    release = options[:release]
+
+    # 1. get latest version from play-store
+    version = get_play_store_version(release: release)
+    build_number = version[:build_number].to_i
+    build_version = version[:version].to_s
+
+    # 3. run flutter build
+    build_app_bundle(
+      version: build_version,
+      build_number: build_number
+    )
+    # # 4. upload to play-store
+    upload_to_play_store(
+      track: 'internal',
+      package_name: @app_package_name,
+      aab: @package_path,
+      skip_upload_changelogs: true,
+      version_name: build_version,
+      version_code: build_number,
+      release_status: @release_status
+    )
+  end
+
+  #---------------------------------------------#
+  #          BUILD AAB FOR PLAY STORE           #
+  # --------------------------------------------#
+  desc 'Build aab for play store'
+  lane :build_release_aab do |options|
+    version = options[:version].to_s
+    build_number = options[:build_number].to_i
+    UI.user_error!('Version is required') if version.nil? || version.empty? || build_number.nil? || build_number
+    UI.message("Building aab for version: #{version} and build number: #{build_number}")
+    build_app_bundle(
+      version: version,
+      build_number: build_number
+    )
+    UI.success("Successfully generated aab at #{@package_path}")
+  end
+
+  #---------------------------------------------#
+  #          BUILD RELEASE APK                  #
+  #---------------------------------------------#
+  desc 'Build release apk'
+  lane :build_release_apk do |options|
+    version = options[:version].to_s
+    build_number = options[:build_number].to_i
+    UI.user_error!('Version and Build number is required') if (version.nil? || version.empty?) && (build_number.nil?)
+    UI.message("Building apk for version: #{version} and build number: #{build_number}")
+    build_apk(
+      version: version,
+      build_number: build_number
+    )
+    UI.success("Successfully generated apk at #{@package_path}")
+  end
+
+  # check if fvm is installed on system then use fvm flutter command
+  # if not then use flutter command
+  def check_fvm
+    if system('fvm --version > /dev/null 2>&1')
+      'fvm flutter'
+    else
+      'flutter'
+    end
+  end
+
+  # bump version according to semantic versioning
+  def bump_version(version_str:, release_type:)
+    UI.message("Bumping version: #{version_str} with release type: #{release_type}")
+    # Check if the version string is valid
+    # This regex matches semantic versioning format (X.Y.Z+X)
+    # where X, Y, and Z are digits and +X is build number
+    # e.g. 1.0.0+1
+    unless version_str =~ /^\d+\.\d+\.\d+([+-]\d+)?$/
+      raise ArgumentError, 'Invalid version string format. Expected format: x.y.z[+|-]?'
+    end
+
+    # Split the version string into version and build number
+    # e.g. 1.0.0+1 => version_part = 1.0.0, build_part = 1
+    # this regex captures the version part and the build number
+    version_part, build_part = version_str.match(/(\d+\.\d+\.\d+)([+-]\d+)?/).captures
+    # If build_part is nil, set it to 0
+    build_part = build_part ? build_part[1..].to_i : 0 # remove the '+' or '-' sign
+    # Increment the build number
+    build_number = build_part + 1
+    # If release_type is nil, return the version with incremented build number
+    if release_type.nil?
+      return {
+        version: version_part,
+        build_number: build_number
+      }
+    end
+
+    # Check if the version string has exactly 3 segments and build number
+    version = Gem::Version.new(version_part)
+    segments = version.segments
+    # Ensure version has 3 segments
+    segments += [0] * (3 - segments.size)
+
+    case release_type
+    when 'major'
+      segments[0] += 1
+      segments[1] = 0
+      segments[2] = 0
+    when 'minor'
+      segments[1] += 1
+      segments[2] = 0
+    else # patch
+      segments[2] += 1
+    end
+    {
+      version: segments[0..2].join('.'),
+      build_number: build_number
+    }
+  end
+
+  #==================================================================#
+  #                                                                  #
+  #         FUNCTION TO GET VERSION FROM FIREBASE                    #
+  #                                                                  #
+  #==================================================================#
+  def get_firebase_version(release:)
+    # get the latest version from firebase
+    firebase_app_distribution_get_latest_release(
+      app: @firebase_app_id,
+      service_credentials_file: @firebase_credentials
+    )
+    latest_release = lane_context[SharedValues::FIREBASE_APP_DISTRO_LATEST_RELEASE]
+    version_str = if latest_release.nil?
+                    '1.0.0+0'
+                  else
+                    "#{latest_release[:displayVersion]}+#{latest_release[:buildVersion]}"
+                  end
+    # bump version
+    bump_version(
+      version_str: version_str,
+      release_type: release
+    )
+  end
+
+  #==================================================================#
+  #                                                                  #
+  #         LANE TO GET VERSION FROM PLAYSTORE                       #
+  #                                                                  #
+  #==================================================================#
+  def get_play_store_version(release:)
+    # get the latest version from playstore
+    version, version_code = fetch_internal_track_version
+
+    if @skip_play_store == 'false'
+      prod_version, prod_code = fetch_production_track_version
+      if prod_version && prod_code && (Gem::Version.new(prod_version) >= Gem::Version.new(version))
+        version = prod_version
+        version_code = prod_code if prod_code >= version_code
+        release = 'patch' if release.nil?
+      end
+    end
+
+    version_str = "#{version}+#{version_code}"
+    bump_version(
+      version_str: version_str,
+      release_type: release
+    )
+  end
+
+  # get the latest version from internal track
+  def fetch_internal_track_version
+    version_names = begin
+      google_play_track_release_names(
+        json_key: @json_key,
+        track: 'internal',
+        package_name: @app_package_name
+      )
+    rescue StandardError
+      []
+    end
+    version_names = version_names.map { |x| x.scan(/\d+\.\d+\.\d+/) }.flatten
+    version = version_names.max_by { |x| Gem::Version.new(x) } || '1.0.0'
+
+    version_codes = begin
+      google_play_track_version_codes(
+        json_key: @json_key,
+        track: 'internal',
+        package_name: @app_package_name
+      )
+    rescue StandardError
+      []
+    end
+    version_code = version_codes.max || 0
+    [version, version_code]
+  end
+
+  # fetch
+  def fetch_production_track_version
+    prod_names = begin
+      google_play_track_release_names(
+        json_key: @json_key,
+        track: 'production',
+        package_name: @app_package_name
+      )
+    rescue StandardError
+      []
+    end
+    prod_codes = begin
+      google_play_track_version_codes(
+        json_key: @json_key,
+        track: 'production',
+        package_name: @app_package_name
+      )
+    rescue StandardError
+      []
+    end
+
+    return [nil, nil] if prod_names.empty? || prod_codes.empty?
+
+    prod_names = prod_names.map { |x| x.scan(/\d+\.\d+\.\d+/) }.flatten
+    prod_version = prod_names.max_by { |x| Gem::Version.new(x) }
+    prod_code = prod_codes.max
+
+    [prod_version, prod_code]
+  end
+
+  #==================================================================#
+  #                                                                  #
+  #         FUNCTION TO GENERATE APK                                 #
+  #                                                                  #
+  #==================================================================#
+  def build_apk(version:, build_number:)
+    raise ArgumentError, 'Build number and version is required' if version.nil? && version.empty?
+
+    cmd = [@flutter_command, 'build', 'apk', '--release']
+    cmd.concat(['--flavor', @flutter_flavor]) if @has_flavor
+    cmd.concat([
+      '-t', @flutter_target,
+      '--build-number', build_number,
+      '--build-name', version.to_s
+    ])
+    cmd.push(@dart_define) if @dart_define
+    cmd.concat(@dart_defines_list) if @dart_defines_list
+
+    sh cmd.compact
+    @package_path = @has_flavor ? "../build/app/outputs/flutter-apk/app-#{@flutter_flavor}-release.apk" : "../build/app/outputs/flutter-apk/app-release.apk"
+    UI.success("Successfully generated apk at #{@package_path}")
+  end
+
+  #==================================================================#
+  #                                                                  #
+  #         FUNCTION TO GENERATE APPBUNDLE                           #
+  #                                                                  #
+  #==================================================================#
+  def build_app_bundle(version:, build_number:)
+    raise ArgumentError, 'Build number and version is required' if version.nil? && version.empty?
+
+    cmd = [@flutter_command, 'build', 'appbundle', '--release']
+    cmd.concat(['--flavor', @flutter_flavor]) if @has_flavor
+    cmd.concat([
+      '-t', @flutter_target,
+      '--build-number', build_number,
+      '--build-name', version.to_s
+    ])
+    cmd.push(@dart_define) if @dart_define
+    cmd.concat(@dart_defines_list) if @dart_defines_list
+
+    sh cmd.compact
+    @package_path = @has_flavor ? "../build/app/outputs/bundle/#{@flutter_flavor}Release/app-#{@flutter_flavor}-release.aab" : "../build/app/outputs/bundle/release/app-release.aab"
+    UI.success("Successfully generated appbundle at #{@package_path}")
+  end
+end

@@ -1,0 +1,8 @@
+# https://dart.dev/tools/private-files
+# Created by `dart pub`
+.dart_tool/
+
+# Centralized Release Tool Secrets
+*-credentials.json
+*-credentials.json.enc
+secrets/

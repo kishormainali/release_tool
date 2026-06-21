@@ -1,0 +1,44 @@
+for_platform :ios do
+  include_bitcode(false)
+  include_symbols(true)
+  workspace('./Runner.xcworkspace')
+  silent(true)
+  suppress_xcode_output(true)
+  clean(true)
+  output_directory('../build/ios/ipa')
+  output_name('Runner')
+
+  # gym configs for firebase
+  for_lane :firebase do
+    scheme(ENV['BUILD_SCHEME'])
+    export_method('ad-hoc')
+    export_options(
+      {
+        method: 'ad-hoc',
+        signingStyle: 'manual',
+        compileBitcode: false,
+        team_id: ENV['APP_STORE_TEAM_ID'],
+        provisioningProfiles: {
+          "#{ENV['APP_IDENTIFIER']}": "match AdHoc #{ENV['APP_IDENTIFIER']}"
+        }
+      }
+    )
+  end
+
+  # gym configs for TestFlight
+  for_lane :test_flight do
+    scheme(ENV['BUILD_SCHEME'])
+    export_method('app-store')
+    export_options(
+      {
+        method: 'app-store',
+        signingStyle: 'manual',
+        compileBitcode: false,
+        team_id: ENV['APP_STORE_TEAM_ID'],
+        provisioningProfiles: {
+          "#{ENV['APP_IDENTIFIER']}": "match AppStore #{ENV['APP_IDENTIFIER']}"
+        }
+      }
+    )
+  end
+end

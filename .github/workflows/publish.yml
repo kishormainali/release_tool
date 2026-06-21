@@ -8,28 +8,6 @@ on:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
     permissions:
       id-token: write
-      contents: read
-    steps:
-      - name: 📚 Git Checkout
-        uses: actions/checkout@v4
-
-      - name: 🐦 Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-
-      - name: 📦 Install Dependencies
-        run: flutter pub get
-
-      - name: 📝 Format Code
-        run: dart format .
-
-      - name: 📝 Analyze Code
-        run: dart analyze .
-
-      - name: 🚀 Publish package
-        run: dart pub publish -f
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1

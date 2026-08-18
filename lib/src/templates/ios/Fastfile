@@ -33,6 +33,7 @@ platform :ios do
     if ENV['DART_DEFINE_FROM_FILE'] && !ENV['DART_DEFINE_FROM_FILE'].empty?
       @dart_define = "--dart-define-from-file=#{ENV['DART_DEFINE_FROM_FILE']}"
     end
+    @release_notes = ENV['RELEASE_NOTES']
     @firebase_credentials = ENV['FIREBASE_SERVICE_JSON_FILE']
     @firebase_app_id = ENV['FIREBASE_APP_ID']
     @flutter_command = check_fvm
@@ -86,7 +87,8 @@ platform :ios do
       app: @firebase_app_id,
       service_credentials_file: @firebase_credentials,
       groups: @firebase_testers_groups,
-      ipa_path: '../build/ios/ipa/Runner.ipa'
+      ipa_path: '../build/ios/ipa/Runner.ipa',
+      release_notes: @release_notes
     )
   end
 
@@ -118,7 +120,8 @@ platform :ios do
       ipa: '../build/ios/ipa/Runner.ipa',
       skip_submission: true,
       app_identifier: @app_identifier,
-      skip_waiting_for_build_processing: true
+      skip_waiting_for_build_processing: true,
+      changelog: @release_notes
     )
   end
 

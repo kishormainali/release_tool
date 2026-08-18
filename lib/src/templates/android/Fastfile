@@ -23,6 +23,7 @@ platform :android do
     if ENV['DART_DEFINE_FROM_FILE'] && !ENV['DART_DEFINE_FROM_FILE'].empty?
       @dart_define = "--dart-define-from-file=#{ENV['DART_DEFINE_FROM_FILE']}"
     end
+    @release_notes = ENV['RELEASE_NOTES']
     @firebase_credentials = ENV['FIREBASE_SERVICE_JSON_FILE']
     @firebase_app_id = ENV['FIREBASE_APP_ID']
     @flutter_command = check_fvm
@@ -70,7 +71,8 @@ platform :android do
       service_credentials_file: @firebase_credentials,
       android_artifact_type: 'APK',
       android_artifact_path: @package_path,
-      groups: @firebase_testers_groups
+      groups: @firebase_testers_groups,
+      release_notes: @release_notes
     )
   end
 
@@ -96,10 +98,11 @@ platform :android do
       track: 'internal',
       package_name: @app_package_name,
       aab: @package_path,
-      skip_upload_changelogs: true,
+      skip_upload_changelogs: @release_notes.nil? || @release_notes.empty?,
       version_name: build_version,
       version_code: build_number,
-      release_status: @release_status
+      release_status: @release_status,
+      release_notes: @release_notes.nil? || @release_notes.empty? ? nil : { "en-US" => @release_notes }
     )
   end
 

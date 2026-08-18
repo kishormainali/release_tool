@@ -1,7 +1,6 @@
-<div align="center">
-  <h1>🚀 Flutter Release Tool</h1>
-  <p>A centralized command-line interface (CLI) tool designed to automate, streamline, and parallelize iOS and Android build and deployment pipelines for Flutter apps using Fastlane.</p>
-</div>
+# 🚀 Flutter Release Tool
+
+A centralized command-line interface (CLI) tool designed to automate, streamline, and parallelize iOS and Android build and deployment pipelines for Flutter apps using Fastlane.</p>
 
 ---
 
@@ -29,12 +28,19 @@ Welcome to the comprehensive guide for the `release_tool`. Whether you're settin
 
 ## ⚡ Quick Start
 
-You can run this tool directly using the Dart SDK:
+### Installation
+
+Install the tool globally from pub.dev:
 
 ```bash
-# Activate locally from source
-dart pub global activate --source path <path_to_release_tool>
+dart pub global activate fp_release_tool
+```
 
+> **Note**: Ensure your `PATH` is configured for Dart global executables.
+
+### Usage
+
+```bash
 # Initialize the config in your project
 release_tool init
 

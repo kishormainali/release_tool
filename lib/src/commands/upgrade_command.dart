@@ -1,6 +1,4 @@
-import 'dart:convert';
-import 'dart:io';
-import 'package:pub_semver/pub_semver.dart';
+import 'package:pub_updater/pub_updater.dart';
 
 import 'base_command.dart';
 import '../version.dart';
@@ -14,58 +12,36 @@ class UpgradeCommand extends BaseCommand {
   final String description =
       'Upgrade the CLI to the latest version published on pub.dev.';
 
+  final PubUpdater _pubUpdater;
+
   /// Creates a new [UpgradeCommand].
-  UpgradeCommand({required super.logger});
+  UpgradeCommand({required super.logger, PubUpdater? pubUpdater})
+    : _pubUpdater = pubUpdater ?? PubUpdater();
 
   @override
   Future<int> run() async {
     final progress = logger.progress('Checking for updates');
     try {
-      final client = HttpClient();
-      final request = await client.getUrl(
-        Uri.parse('https://pub.dev/api/packages/fp_release_tool'),
+      final isUpToDate = await _pubUpdater.isUpToDate(
+        packageName: 'fp_release_tool',
+        currentVersion: packageVersion,
       );
-      final response = await request.close();
 
-      if (response.statusCode != 200) {
-        progress.fail(
-          'Failed to check for updates (HTTP ${response.statusCode}).',
-        );
-        return 1;
-      }
-
-      final responseBody = await response.transform(utf8.decoder).join();
-      final data = jsonDecode(responseBody) as Map<String, dynamic>;
-      final latest = data['latest'] as Map<String, dynamic>;
-      final latestVersionStr = latest['version'] as String;
-
-      final currentVersion = Version.parse(packageVersion);
-      final latestVersion = Version.parse(latestVersionStr);
-
-      if (currentVersion >= latestVersion) {
+      if (isUpToDate) {
         progress.complete(
           'release_tool is already at the latest version ($packageVersion).',
         );
         return 0;
       }
 
-      progress.update('Upgrading from $packageVersion to $latestVersionStr');
-
-      final result = await Process.run('dart', [
-        'pub',
-        'global',
-        'activate',
+      final latestVersion = await _pubUpdater.getLatestVersion(
         'fp_release_tool',
-      ]);
+      );
+      progress.update('Upgrading from $packageVersion to $latestVersion');
 
-      if (result.exitCode == 0) {
-        progress.complete('Successfully upgraded to $latestVersionStr!');
-        return 0;
-      } else {
-        progress.fail('Failed to upgrade.');
-        logger.err(result.stderr.toString());
-        return result.exitCode;
-      }
+      await _pubUpdater.update(packageName: 'fp_release_tool');
+      progress.complete('Successfully upgraded to $latestVersion!');
+      return 0;
     } catch (e) {
       progress.fail('An error occurred while checking for updates.');
       logger.err(e.toString());

@@ -68,11 +68,15 @@
 </ul>
 <hr>
 <h2 id="-quick-start">⚡ Quick Start</h2>
-<p>You can run this tool directly using the Dart SDK:</p>
-<pre class="language-bash"><code class="language-bash"># Activate locally from source
-dart pub global activate --source path &lt;path_to_release_tool&gt;
-
-# Initialize the config in your project
+<h3 id="installation">Installation</h3>
+<p>Install the tool globally from pub.dev:</p>
+<pre class="language-bash"><code class="language-bash">dart pub global activate fp_release_tool
+</code></pre>
+<blockquote>
+<p><strong>Note</strong>: Ensure your <code>PATH</code> is configured for Dart global executables.</p>
+</blockquote>
+<h3 id="usage">Usage</h3>
+<pre class="language-bash"><code class="language-bash"># Initialize the config in your project
 release_tool init
 
 # Start a deployment!
@@ -90,6 +94,13 @@ release_tool deploy
       <section class="summary">
           <h2>Libraries</h2>
         <dl>
+          <dt id="fp_release_tool">
+  <span class="name"><a href="fp_release_tool/">fp_release_tool</a></span> 
+
+</dt>
+<dd>A centralized CLI tool to streamline Flutter releases on Android and iOS using Fastlane.
+</dd>
+
         </dl>
       </section>
   </div> <!-- /.main-content -->
@@ -107,6 +118,7 @@ release_tool deploy
     <h5 class="hidden-xs"><span class="package-name">fp_release_tool</span> <span class="package-kind">package</span></h5>
     <ol>
       <li class="section-title">Libraries</li>
+      <li><a href="fp_release_tool/">fp_release_tool</a></li>
 </ol>
 
   </div>

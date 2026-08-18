@@ -4,21 +4,17 @@ Welcome to the `release_tool`! This guide will help you get your Flutter project
 
 ## 1. Installation
 
-You have two options for running the `release_tool`:
+Install the `release_tool` globally via pub.dev:
 
-### Option A: Use it globally (Recommended)
-This allows you to run `release_tool` from anywhere on your machine.
 ```bash
-# Activate locally from source
-dart pub global activate --source path <path_to_release_tool>
-
-# Verify installation
-release_tool --help
+dart pub global activate fp_release_tool
 ```
 
-### Option B: Run it directly
+> **Note**: Ensure that your system's `PATH` includes the Dart pub cache directory so you can run the `release_tool` executable from anywhere.
+
+Verify the installation:
 ```bash
-dart run <path_to_release_tool>/bin/release_tool.dart <command>
+release_tool --help
 ```
 
 ## 2. Initialization

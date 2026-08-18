@@ -1,9 +1,9 @@
-import 'dart:convert';
 import 'dart:io';
 import 'package:mason_logger/mason_logger.dart';
 import 'package:path/path.dart' as p;
 import 'base_command.dart';
 import '../config/release_config.dart';
+import '../utils/fastlane_utils.dart';
 import '../utils/process_utils.dart';
 
 /// Base class for certificate management commands.
@@ -165,57 +165,14 @@ abstract class CertificatesBaseCommand extends BaseCommand {
         Platform.environment['MATCH_PASSWORD'] ??
         '';
 
-    String ascKeyId = iosConfig?.ascKeyId ?? sharedIos?.ascKeyId ?? '';
-    if (ascKeyId.isEmpty) {
-      ascKeyId =
-          Platform.environment['ASC_KEY_ID'] ??
-          Platform.environment['APP_STORE_CONNECT_API_KEY_KEY_ID'] ??
-          '';
-    }
-
-    String ascIssuerId = iosConfig?.ascIssuerId ?? sharedIos?.ascIssuerId ?? '';
-    if (ascIssuerId.isEmpty) {
-      ascIssuerId =
-          Platform.environment['ASC_ISSUER_ID'] ??
-          Platform.environment['APP_STORE_CONNECT_API_KEY_ISSUER_ID'] ??
-          '';
-    }
-
-    String? ascKeyFilepath =
-        iosConfig?.ascKeyFilepath ?? sharedIos?.ascKeyFilepath;
-    if (ascKeyFilepath == null || ascKeyFilepath.isEmpty) {
-      ascKeyFilepath =
-          Platform.environment['ASC_KEY_FILEPATH'] ??
-          Platform.environment['APP_STORE_CONNECT_API_KEY_KEY_FILEPATH'];
-    }
-
-    String? ascKeyContentBase64;
-    if (ascKeyFilepath != null && ascKeyFilepath.isNotEmpty) {
-      final keyFile = File(makeAbsolutePath(ascKeyFilepath) ?? '');
-      if (keyFile.existsSync()) {
-        try {
-          final bytes = keyFile.readAsBytesSync();
-          ascKeyContentBase64 = base64.encode(bytes);
-        } catch (_) {}
-      }
-    }
-
-    if (ascKeyContentBase64 == null || ascKeyContentBase64.isEmpty) {
-      final envKeyContent =
-          Platform.environment['ASC_KEY_CONTENT'] ??
-          Platform.environment['APP_STORE_CONNECT_API_KEY_KEY'];
-      if (envKeyContent != null && envKeyContent.isNotEmpty) {
-        if (envKeyContent.contains('-----BEGIN')) {
-          try {
-            ascKeyContentBase64 = base64.encode(
-              utf8.encode(envKeyContent.trim()),
-            );
-          } catch (_) {}
-        } else {
-          ascKeyContentBase64 = envKeyContent.trim();
-        }
-      }
-    }
+    final ascCredentials = AscCredentials.resolve(
+      configKeyId: iosConfig?.ascKeyId ?? sharedIos?.ascKeyId,
+      configIssuerId: iosConfig?.ascIssuerId ?? sharedIos?.ascIssuerId,
+      configKeyFilepath: iosConfig?.ascKeyFilepath ?? sharedIos?.ascKeyFilepath,
+      resolvePath: makeAbsolutePath,
+      logger: logger,
+      logPrefix: prefix,
+    );
 
     // Configuration Validations (Strict iOS validation)
     if (appStoreTeamId.isEmpty) {
@@ -225,11 +182,7 @@ abstract class CertificatesBaseCommand extends BaseCommand {
       return 1;
     }
 
-    final hasAscKeys =
-        ascKeyId.isNotEmpty &&
-        ascIssuerId.isNotEmpty &&
-        ascKeyContentBase64 != null;
-    if (!hasAscKeys) {
+    if (!ascCredentials.isComplete) {
       logger.err(
         '$prefix Validation failed: App Store Connect API keys (asc_key_id, asc_issuer_id, asc_key_filepath) are strictly required for iOS certificates management.',
       );
@@ -265,12 +218,12 @@ abstract class CertificatesBaseCommand extends BaseCommand {
       'CERTIFICATE_GIT_URL': certificateGitUrl,
       'CERTIFICATE_GIT_BRANCH': certificateGitBranch,
       'MATCH_PASSWORD': matchPassword,
-      'ASC_KEY_ID': ascKeyId,
-      'ASC_ISSUER_ID': ascIssuerId,
-      'ASC_KEY_CONTENT': ascKeyContentBase64,
+      'ASC_KEY_ID': ascCredentials.keyId,
+      'ASC_ISSUER_ID': ascCredentials.issuerId,
+      'ASC_KEY_CONTENT': ascCredentials.keyContentBase64!,
     };
 
-    final fastlaneCmd = await _getFastlaneCommand('ios');
+    final fastlaneCmd = await resolveFastlaneCommand(projectDir, 'ios');
 
     Future<int> runLane(String fastlaneLane) async {
       final arguments = [...fastlaneCmd.sublist(1), fastlaneLane];
@@ -325,30 +278,6 @@ abstract class CertificatesBaseCommand extends BaseCommand {
       // get
       return await runLane('get_cert');
     }
-  }
-
-  /// Executes the [makeAbsolutePath] operation.
-  String? makeAbsolutePath(String? relativeOrAbsolutePath) {
-    if (relativeOrAbsolutePath == null || relativeOrAbsolutePath.isEmpty) {
-      return null;
-    }
-    if (p.isAbsolute(relativeOrAbsolutePath)) return relativeOrAbsolutePath;
-    return p.normalize(p.join(projectDir.path, relativeOrAbsolutePath));
-  }
-
-  Future<List<String>> _getFastlaneCommand(String platformDirName) async {
-    final gemfile = File(p.join(projectDir.path, platformDirName, 'Gemfile'));
-    if (gemfile.existsSync()) {
-      try {
-        final result = await Process.run('bundle', [
-          '--version',
-        ], runInShell: true);
-        if (result.exitCode == 0) {
-          return ['bundle', 'exec', 'fastlane'];
-        }
-      } catch (_) {}
-    }
-    return ['fastlane'];
   }
 }
 

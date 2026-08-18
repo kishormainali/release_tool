@@ -47,4 +47,14 @@ abstract class BaseCommand extends Command<int> {
       return null;
     }
   }
+
+  /// Resolves [relativeOrAbsolutePath] to an absolute path relative to
+  /// [projectDir]. Returns `null` if [relativeOrAbsolutePath] is `null` or empty.
+  String? makeAbsolutePath(String? relativeOrAbsolutePath) {
+    if (relativeOrAbsolutePath == null || relativeOrAbsolutePath.isEmpty) {
+      return null;
+    }
+    if (p.isAbsolute(relativeOrAbsolutePath)) return relativeOrAbsolutePath;
+    return p.normalize(p.join(projectDir.path, relativeOrAbsolutePath));
+  }
 }

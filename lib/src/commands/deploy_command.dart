@@ -4,6 +4,7 @@ import 'package:mason_logger/mason_logger.dart';
 import 'package:path/path.dart' as p;
 import 'base_command.dart';
 import '../config/release_config.dart';
+import '../utils/fastlane_utils.dart';
 import '../utils/process_utils.dart';
 import '../utils/version_utils.dart';
 
@@ -256,13 +257,10 @@ class DeployCommand extends BaseCommand {
         releaseConfig.shared.firebaseGroups ??
         '';
 
-    final dartDefines = <String, String>{};
-    if (releaseConfig.shared.dartDefines != null) {
-      dartDefines.addAll(releaseConfig.shared.dartDefines!);
-    }
-    if (envConfig.dartDefines != null) {
-      dartDefines.addAll(envConfig.dartDefines!);
-    }
+    final dartDefines = mergeDartDefines(
+      sharedDefines: releaseConfig.shared.dartDefines,
+      envDefines: envConfig.dartDefines,
+    );
 
     final dartDefineFromFile =
         envConfig.dartDefineFromFile ??
@@ -315,7 +313,7 @@ class DeployCommand extends BaseCommand {
       return 1;
     }
 
-    final fastlaneCmd = await _getFastlaneCommand('android');
+    final fastlaneCmd = await resolveFastlaneCommand(projectDir, 'android');
 
     final arguments = [
       ...fastlaneCmd.sublist(1),
@@ -394,72 +392,22 @@ class DeployCommand extends BaseCommand {
         iosConfig?.match?.gitBranch ?? sharedIos?.match?.gitBranch ?? 'master';
     final scheme = iosConfig?.scheme ?? envConfig.flavor ?? '';
 
-    String ascKeyId = iosConfig?.ascKeyId ?? sharedIos?.ascKeyId ?? '';
-    if (ascKeyId.isEmpty) {
-      ascKeyId =
-          Platform.environment['ASC_KEY_ID'] ??
-          Platform.environment['APP_STORE_CONNECT_API_KEY_KEY_ID'] ??
-          '';
-    }
-
-    String ascIssuerId = iosConfig?.ascIssuerId ?? sharedIos?.ascIssuerId ?? '';
-    if (ascIssuerId.isEmpty) {
-      ascIssuerId =
-          Platform.environment['ASC_ISSUER_ID'] ??
-          Platform.environment['APP_STORE_CONNECT_API_KEY_ISSUER_ID'] ??
-          '';
-    }
-
-    String? ascKeyFilepath =
-        iosConfig?.ascKeyFilepath ?? sharedIos?.ascKeyFilepath;
-    if (ascKeyFilepath == null || ascKeyFilepath.isEmpty) {
-      ascKeyFilepath =
-          Platform.environment['ASC_KEY_FILEPATH'] ??
-          Platform.environment['APP_STORE_CONNECT_API_KEY_KEY_FILEPATH'];
-    }
-
-    String? ascKeyContentBase64;
-    if (ascKeyFilepath != null && ascKeyFilepath.isNotEmpty) {
-      final keyFile = File(makeAbsolutePath(ascKeyFilepath) ?? '');
-      if (keyFile.existsSync()) {
-        try {
-          final bytes = keyFile.readAsBytesSync();
-          ascKeyContentBase64 = base64.encode(bytes);
-        } catch (_) {}
-      } else {
-        logger.detail(
-          '$prefix App Store Connect key file not found at: $ascKeyFilepath',
-        );
-      }
-    }
-
-    if (ascKeyContentBase64 == null || ascKeyContentBase64.isEmpty) {
-      final envKeyContent =
-          Platform.environment['ASC_KEY_CONTENT'] ??
-          Platform.environment['APP_STORE_CONNECT_API_KEY_KEY'];
-      if (envKeyContent != null && envKeyContent.isNotEmpty) {
-        if (envKeyContent.contains('-----BEGIN')) {
-          try {
-            ascKeyContentBase64 = base64.encode(
-              utf8.encode(envKeyContent.trim()),
-            );
-          } catch (_) {}
-        } else {
-          ascKeyContentBase64 = envKeyContent.trim();
-        }
-      }
-    }
+    final ascCredentials = AscCredentials.resolve(
+      configKeyId: iosConfig?.ascKeyId ?? sharedIos?.ascKeyId,
+      configIssuerId: iosConfig?.ascIssuerId ?? sharedIos?.ascIssuerId,
+      configKeyFilepath: iosConfig?.ascKeyFilepath ?? sharedIos?.ascKeyFilepath,
+      resolvePath: makeAbsolutePath,
+      logger: logger,
+      logPrefix: prefix,
+    );
 
     final firebaseGroups =
         iosConfig?.firebaseGroups ?? releaseConfig.shared.firebaseGroups ?? '';
 
-    final dartDefines = <String, String>{};
-    if (releaseConfig.shared.dartDefines != null) {
-      dartDefines.addAll(releaseConfig.shared.dartDefines!);
-    }
-    if (envConfig.dartDefines != null) {
-      dartDefines.addAll(envConfig.dartDefines!);
-    }
+    final dartDefines = mergeDartDefines(
+      sharedDefines: releaseConfig.shared.dartDefines,
+      envDefines: envConfig.dartDefines,
+    );
 
     final dartDefineFromFile =
         envConfig.dartDefineFromFile ??
@@ -486,9 +434,10 @@ class DeployCommand extends BaseCommand {
       'CERTIFICATE_GIT_BRANCH': certificateGitBranch,
       'BUILD_SCHEME': scheme,
       'RELEASE_NOTES': releaseNotes,
-      if (ascKeyId.isNotEmpty) 'ASC_KEY_ID': ascKeyId,
-      if (ascIssuerId.isNotEmpty) 'ASC_ISSUER_ID': ascIssuerId,
-      'ASC_KEY_CONTENT': ?ascKeyContentBase64,
+      if (ascCredentials.keyId.isNotEmpty) 'ASC_KEY_ID': ascCredentials.keyId,
+      if (ascCredentials.issuerId.isNotEmpty)
+        'ASC_ISSUER_ID': ascCredentials.issuerId,
+      'ASC_KEY_CONTENT': ?ascCredentials.keyContentBase64,
       'DART_DEFINES': jsonEncode(dartDefines),
       'DART_DEFINE_FROM_FILE': makeAbsolutePath(dartDefineFromFile) ?? '',
     };
@@ -516,18 +465,14 @@ class DeployCommand extends BaseCommand {
     }
 
     // App Store Connect API keys validation
-    final hasAscKeys =
-        ascKeyId.isNotEmpty &&
-        ascIssuerId.isNotEmpty &&
-        ascKeyContentBase64 != null;
-    if (!hasAscKeys) {
+    if (!ascCredentials.isComplete) {
       logger.err(
         '$prefix Validation failed: App Store Connect API keys (asc_key_id, asc_issuer_id, asc_key_filepath) are strictly required for iOS deployment.',
       );
       return 1;
     }
 
-    final fastlaneCmd = await _getFastlaneCommand('ios');
+    final fastlaneCmd = await resolveFastlaneCommand(projectDir, 'ios');
 
     final arguments = [
       ...fastlaneCmd.sublist(1),
@@ -582,39 +527,5 @@ class DeployCommand extends BaseCommand {
     }
 
     return fastlaneCode;
-  }
-
-  // ==========================================
-  // Helper Utility
-  // ==========================================
-
-  /// Executes the [makeAbsolutePath] operation.
-  String? makeAbsolutePath(String? relativeOrAbsolutePath) {
-    if (relativeOrAbsolutePath == null || relativeOrAbsolutePath.isEmpty) {
-      return null;
-    }
-    if (p.isAbsolute(relativeOrAbsolutePath)) return relativeOrAbsolutePath;
-    return p.normalize(p.join(projectDir.path, relativeOrAbsolutePath));
-  }
-
-  // ==========================================
-  // Gemfile & Bundler Helpers
-  // ==========================================
-
-  /// Checks if Bundler (bundle) is available and if Gemfile exists,
-  /// returns ['bundle', 'exec', 'fastlane'] or ['fastlane'].
-  Future<List<String>> _getFastlaneCommand(String platformDirName) async {
-    final gemfile = File(p.join(projectDir.path, platformDirName, 'Gemfile'));
-    if (gemfile.existsSync()) {
-      try {
-        final result = await Process.run('bundle', [
-          '--version',
-        ], runInShell: true);
-        if (result.exitCode == 0) {
-          return ['bundle', 'exec', 'fastlane'];
-        }
-      } catch (_) {}
-    }
-    return ['fastlane'];
   }
 }

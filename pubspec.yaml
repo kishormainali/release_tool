@@ -1,6 +1,6 @@
 name: fp_release_tool
 description: A centralized command-line interface tool to streamline and parallelize iOS and Android build and deployment pipelines for Flutter apps using Fastlane.
-version: 1.0.1
+version: 1.1.0
 homepage: https://github.com/kishormainali/release_tool
 repository: https://github.com/kishormainali/release_tool
 issue_tracker: https://github.com/kishormainali/release_tool/issues

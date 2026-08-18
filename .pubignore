@@ -3,3 +3,7 @@ example/build/
 example/.dart_tool/
 example/ios/Pods/
 example/android/.gradle/
+
+# pub.dev generates its own hosted API docs from source at publish time;
+# no need to ship the pre-rendered dartdoc HTML/JS/CSS in the package itself.
+doc/api/

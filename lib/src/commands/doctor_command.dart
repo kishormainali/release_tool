@@ -278,6 +278,8 @@ class DoctorCommand extends BaseCommand {
       configIssuerId: iosConfig.ascIssuerId ?? sharedIos?.ascIssuerId,
       configKeyFilepath: iosConfig.ascKeyFilepath ?? sharedIos?.ascKeyFilepath,
       resolvePath: makeAbsolutePath,
+      logger: logger,
+      logPrefix: 'iOS:',
     );
     if (ascCredentials.isComplete) {
       checks.add(

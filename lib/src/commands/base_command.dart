@@ -57,4 +57,11 @@ abstract class BaseCommand extends Command<int> {
     if (p.isAbsolute(relativeOrAbsolutePath)) return relativeOrAbsolutePath;
     return p.normalize(p.join(projectDir.path, relativeOrAbsolutePath));
   }
+
+  /// Whether this command is running in an interactive terminal session.
+  /// `false` on a real TTY that also has a `CI` environment variable set,
+  /// so pipelines running under a pseudo-TTY (some self-hosted runners,
+  /// `docker run -it`) don't hang waiting for prompts that will never come.
+  bool get isInteractiveSession =>
+      stdin.hasTerminal && Platform.environment['CI'] == null;
 }

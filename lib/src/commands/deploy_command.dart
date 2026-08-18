@@ -52,6 +52,11 @@ class DeployCommand extends BaseCommand {
       help:
           'Release notes to display in Firebase App Distribution or store changelogs.',
     );
+    argParser.addOption(
+      'release-notes-file',
+      help:
+          'Read release notes from a file (e.g. a generated changelog) instead of --release-notes.',
+    );
     argParser.addFlag(
       'dry-run',
       negatable: false,
@@ -80,7 +85,7 @@ class DeployCommand extends BaseCommand {
       return 1;
     }
 
-    final isInteractive = stdin.hasTerminal;
+    final isInteractive = isInteractiveSession;
 
     // 1. Resolve Environment
     String? envName = argResults?['env'] as String?;
@@ -138,8 +143,25 @@ class DeployCommand extends BaseCommand {
     final selectedPlatform = platform!;
     final target = deployTarget!;
     final bump = argResults?['bump'] as String?;
-    final releaseNotes = argResults?['release-notes'] as String;
+    var releaseNotes = argResults?['release-notes'] as String;
     final isDryRun = argResults?['dry-run'] as bool? ?? false;
+
+    // 4. Resolve release notes (--release-notes-file takes precedence when set)
+    final releaseNotesFile = argResults?['release-notes-file'] as String?;
+    if (releaseNotesFile != null && releaseNotesFile.isNotEmpty) {
+      final resolvedPath = makeAbsolutePath(releaseNotesFile);
+      final file = File(resolvedPath ?? '');
+      if (!file.existsSync()) {
+        logger.err('Release notes file not found: $releaseNotesFile');
+        return 1;
+      }
+      if (argResults?.wasParsed('release-notes') ?? false) {
+        logger.warn(
+          'Both --release-notes and --release-notes-file were provided; using --release-notes-file.',
+        );
+      }
+      releaseNotes = file.readAsStringSync().trim();
+    }
 
     // Platform validation checks
     if ((selectedPlatform == 'android' || selectedPlatform == 'both') &&

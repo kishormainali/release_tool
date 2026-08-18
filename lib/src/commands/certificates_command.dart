@@ -56,7 +56,7 @@ abstract class CertificatesBaseCommand extends BaseCommand {
       return 1;
     }
 
-    final isInteractive = stdin.hasTerminal;
+    final isInteractive = isInteractiveSession;
 
     final allFlag = argResults?['all'] as bool? ?? false;
     final isDryRun = argResults?['dry-run'] as bool? ?? false;

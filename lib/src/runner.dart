@@ -38,6 +38,13 @@ class ReleaseToolCommandRunner extends CompletionCommandRunner<int> {
          'release_tool',
          'A centralized CLI tool to streamline Flutter releases on Android and iOS using Fastlane.',
        ) {
+    argParser.addFlag(
+      'verbose',
+      abbr: 'v',
+      negatable: false,
+      help: 'Enable verbose (debug-level) logging output.',
+    );
+
     // Add subcommands
     addCommand(InitCommand(logger: this.logger));
     addCommand(VersionCommand(logger: this.logger));
@@ -119,7 +126,11 @@ $rawUsage''';
   Future<int> run(Iterable<String> args) async {
     final updateCheck = _checkForUpdates();
     try {
-      final exitCode = await runCommand(parse(args));
+      final topLevelResults = parse(args);
+      if (topLevelResults['verbose'] as bool? ?? false) {
+        logger.level = Level.verbose;
+      }
+      final exitCode = await runCommand(topLevelResults);
       await updateCheck;
       return exitCode ?? 0;
     } on UsageException catch (e) {

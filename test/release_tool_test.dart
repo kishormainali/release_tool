@@ -379,6 +379,100 @@ environments:
     });
   });
 
+  group('Deploy Release Notes File', () {
+    late Directory tempDir;
+    late String scriptPath;
+
+    setUp(() {
+      tempDir = Directory.systemTemp.createTempSync(
+        'release_tool_test_release_notes',
+      );
+      scriptPath = p.join(Directory.current.path, 'bin/release_tool.dart');
+      Directory('${tempDir.path}/android').createSync(recursive: true);
+      File('${tempDir.path}/pubspec.yaml').writeAsStringSync('''
+name: test_app
+version: 1.0.0+1
+''');
+      File('${tempDir.path}/release_config.yaml').writeAsStringSync('''
+environments:
+  dev:
+    android:
+      package_name: com.example.dev
+      firebase_app_id: 1:android:dev
+''');
+    });
+
+    tearDown(() {
+      tempDir.deleteSync(recursive: true);
+    });
+
+    Future<ProcessResult> runDeploy(List<String> extraArgs) =>
+        Process.run('dart', [
+          'run',
+          scriptPath,
+          'deploy',
+          '--env',
+          'dev',
+          '--platform',
+          'android',
+          '--target',
+          'firebase',
+          '--dry-run',
+          '--yes',
+          ...extraArgs,
+        ], workingDirectory: tempDir.path);
+
+    test('--release-notes-file overrides the default release notes', () async {
+      File(
+        '${tempDir.path}/notes.txt',
+      ).writeAsStringSync('- Fixed the thing\n- Added the other thing\n');
+
+      final result = await runDeploy(['--release-notes-file', 'notes.txt']);
+
+      expect(result.exitCode, 0);
+      expect(
+        result.stdout as String,
+        contains('- Fixed the thing\n- Added the other thing'),
+      );
+    });
+
+    test(
+      'fails with a clear error when the release notes file is missing',
+      () async {
+        final result = await runDeploy(['--release-notes-file', 'missing.txt']);
+
+        expect(result.exitCode, 1);
+        expect(
+          result.stderr as String,
+          contains('Release notes file not found: missing.txt'),
+        );
+      },
+    );
+
+    test(
+      '--release-notes-file takes precedence over --release-notes with a warning',
+      () async {
+        File('${tempDir.path}/notes.txt').writeAsStringSync('from the file');
+
+        final result = await runDeploy([
+          '--release-notes',
+          'from the flag',
+          '--release-notes-file',
+          'notes.txt',
+        ]);
+
+        expect(result.exitCode, 0);
+        expect(result.stdout as String, contains('"from the file"'));
+        expect(
+          result.stderr as String,
+          contains(
+            'Both --release-notes and --release-notes-file were provided',
+          ),
+        );
+      },
+    );
+  });
+
   group('Dart Defines Support', () {
     test('ReleaseConfig.fromYaml parses map format dart_defines', () {
       const yamlContent = '''
@@ -630,5 +724,64 @@ environments:
         expect(stderr, contains('warning(s) found'));
       },
     );
+  });
+
+  group('Global --verbose Flag', () {
+    late Directory tempDir;
+    late String scriptPath;
+
+    setUp(() {
+      tempDir = Directory.systemTemp.createTempSync(
+        'release_tool_test_verbose',
+      );
+      scriptPath = p.join(Directory.current.path, 'bin/release_tool.dart');
+      Directory('${tempDir.path}/ios').createSync(recursive: true);
+      File('${tempDir.path}/pubspec.yaml').writeAsStringSync('''
+name: test_app
+version: 1.0.0+1
+''');
+      File('${tempDir.path}/release_config.yaml').writeAsStringSync('''
+environments:
+  dev:
+    ios:
+      bundle_id: com.example.dev
+      app_store_team_id: "TEAM_123"
+      match:
+        git_url: git@github.com:example/certs.git
+      asc_key_filepath: does/not/exist.p8
+''');
+    });
+
+    tearDown(() {
+      tempDir.deleteSync(recursive: true);
+    });
+
+    test('detail logs are hidden by default', () async {
+      final result = await Process.run('dart', [
+        'run',
+        scriptPath,
+        'doctor',
+        '--env',
+        'dev',
+      ], workingDirectory: tempDir.path);
+
+      expect(result.stdout, isNot(contains('key file not found')));
+    });
+
+    test('--verbose surfaces detail logs', () async {
+      final result = await Process.run('dart', [
+        'run',
+        scriptPath,
+        '--verbose',
+        'doctor',
+        '--env',
+        'dev',
+      ], workingDirectory: tempDir.path);
+
+      expect(
+        result.stdout,
+        contains('App Store Connect key file not found at: does/not/exist.p8'),
+      );
+    });
   });
 }

@@ -62,7 +62,7 @@ class InitCommand extends BaseCommand {
       // 3. Write release_config.yaml check
       if (configFile.existsSync()) {
         progress.fail();
-        final isInteractive = stdin.hasTerminal;
+        final isInteractive = isInteractiveSession;
         final skipConfirmation =
             (argResults?['yes'] as bool? ?? false) || !isInteractive;
         var overwrite = true;

@@ -5,6 +5,7 @@ gem "dotenv", '< 3.0.0'
 gem 'nokogiri', '>= 1.19.4'
 gem "abbrev", '0.1.2'
 gem "ostruct", '0.6.3'
+gem "googleauth", '>= 1.8.0'
 
 plugins_path = File.join(File.dirname(__FILE__), 'fastlane', 'Pluginfile')
 eval_gemfile(plugins_path) if File.exist?(plugins_path)

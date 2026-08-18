@@ -11,6 +11,7 @@ import 'commands/deploy_command.dart';
 import 'commands/update_command.dart';
 import 'commands/certificates_command.dart';
 import 'commands/doctor_command.dart';
+import 'commands/remote_config_command.dart';
 import 'commands/upgrade_command.dart';
 import 'utils/update_check_cache.dart';
 import 'version.dart';
@@ -53,6 +54,7 @@ class ReleaseToolCommandRunner extends CompletionCommandRunner<int> {
     addCommand(UpgradeCommand(logger: this.logger));
     addCommand(CertificatesCommand(logger: this.logger));
     addCommand(DoctorCommand(logger: this.logger));
+    addCommand(RemoteConfigCommand(logger: this.logger));
   }
 
   @override

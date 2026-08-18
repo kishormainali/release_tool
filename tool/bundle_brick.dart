@@ -56,6 +56,10 @@ vars:
 shared:
   firebase_service_json_file: "secrets/firebase-credentials.json"
   firebase_groups: "qa-testers"
+  # Firebase project id used by `release_tool remote-config` to update
+  # fl_updater_latest_version after a store release. Override per-environment
+  # if different environments use different Firebase projects.
+  firebase_project_id: ""
   dart_defines:
     # DEFINE_KEY: "value"
   dart_define_from_file: "secrets/.env"

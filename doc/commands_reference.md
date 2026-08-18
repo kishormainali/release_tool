@@ -72,3 +72,33 @@ Update generated Fastlane templates and merge new config fields without overwrit
 ```bash
 release_tool update [arguments]
 ```
+
+---
+
+## `release_tool remote-config`
+Publishes the version most recently deployed with `deploy --target store` to Firebase Remote Config's `fl_updater_latest_version` parameter (for apps using the [fl_updater](https://pub.dev/packages/fl_updater) package), then clears the cached release so it isn't published twice.
+
+Every successful `deploy --target store` run caches the version Fastlane actually shipped (not `pubspec.yaml`'s version — the real one is computed live from the Play Store/App Store, which can differ) in a local, gitignored `.release_tool/latest_release_cache.json`. `remote-config` reads that cache, updates both the parameter's default value and its `fl_updater_android` / `fl_updater_ios` conditional values (creating those conditions in Firebase Console if they don't already exist), then clears the cache entries it published.
+
+**Usage:**
+```bash
+release_tool remote-config --env prod
+
+# Force every user below this version to update immediately (non-dismissible)
+release_tool remote-config --env prod --force-update
+
+# Publish an explicit version instead of the cached one (e.g. first-time setup,
+# or republishing without a fresh store deploy). Requires --platform.
+release_tool remote-config --env prod --platform android --version 2.5.0
+```
+**Options:**
+- `-e, --env`: The environment whose cached release(s) to publish.
+- `-p, --platform`: Limit the update to a single platform (`android` or `ios`); defaults to every cached platform for the environment. Required when using `--version`.
+- `--version`: Publish this exact version instead of the cached release version. Useful when there's nothing cached yet, or to republish/correct a value without doing a fresh store deploy. Requires `--platform`.
+- `--force-update`: Also set `fl_updater_min_version` to the same version being published, which fl_updater treats as an immediate, non-dismissible mandatory update for every user below it. Off by default — a normal release only nudges `fl_updater_latest_version`.
+- `--dry-run`: Show what would be published without contacting Firebase or clearing the cache.
+- `-y, --yes`: Skip confirmation prompts (useful in CI/CD). With `--force-update` and no `--yes`, the confirmation prompt defaults to "no" so a mandatory update is never triggered by an accidental Enter key.
+
+**Requirements:**
+- `firebase_project_id` set in `release_config.yaml` (see [Configuration Guide](configuration.md)).
+- The service account behind `firebase_service_json_file` needs the **Firebase Remote Config Admin** IAM role in Google Cloud Console (the same file used for Firebase App Distribution can be reused — it just needs this role added).

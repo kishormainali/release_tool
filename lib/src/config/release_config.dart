@@ -81,6 +81,10 @@ class SharedConfig {
   /// The [firebaseGroups] property.
   final String? firebaseGroups;
 
+  /// The Firebase project id used by the `remote-config` command to update
+  /// Remote Config after a store release.
+  final String? firebaseProjectId;
+
   /// The [dartDefines] property.
   final Map<String, String>? dartDefines;
 
@@ -93,6 +97,7 @@ class SharedConfig {
     this.ios,
     this.firebaseServiceJsonFile,
     this.firebaseGroups,
+    this.firebaseProjectId,
     this.dartDefines,
     this.dartDefineFromFile,
   });
@@ -108,6 +113,7 @@ class SharedConfig {
           : null,
       firebaseServiceJsonFile: map['firebase_service_json_file'] as String?,
       firebaseGroups: map['firebase_groups'] as String?,
+      firebaseProjectId: map['firebase_project_id'] as String?,
       dartDefines: _parseDartDefines(map['dart_defines'] ?? map['dart-define']),
       dartDefineFromFile:
           map['dart_define_from_file'] as String? ??
@@ -123,6 +129,7 @@ class SharedConfig {
       if (firebaseServiceJsonFile != null)
         'firebase_service_json_file': firebaseServiceJsonFile,
       if (firebaseGroups != null) 'firebase_groups': firebaseGroups,
+      if (firebaseProjectId != null) 'firebase_project_id': firebaseProjectId,
       if (dartDefines != null) 'dart_defines': dartDefines,
       if (dartDefineFromFile != null)
         'dart_define_from_file': dartDefineFromFile,
@@ -238,6 +245,9 @@ class EnvironmentConfig {
   /// The [ios] property.
   final IOSConfig? ios;
 
+  /// Overrides [SharedConfig.firebaseProjectId] for this environment.
+  final String? firebaseProjectId;
+
   /// The [dartDefines] property.
   final Map<String, String>? dartDefines;
 
@@ -251,6 +261,7 @@ class EnvironmentConfig {
     this.entryPoint,
     this.android,
     this.ios,
+    this.firebaseProjectId,
     this.dartDefines,
     this.dartDefineFromFile,
   });
@@ -267,6 +278,7 @@ class EnvironmentConfig {
       ios: map['ios'] != null
           ? IOSConfig.fromYaml(map['ios'] as YamlMap)
           : null,
+      firebaseProjectId: map['firebase_project_id'] as String?,
       dartDefines: _parseDartDefines(map['dart_defines'] ?? map['dart-define']),
       dartDefineFromFile:
           map['dart_define_from_file'] as String? ??
@@ -281,6 +293,7 @@ class EnvironmentConfig {
       if (entryPoint != null) 'entry_point': entryPoint,
       if (android != null) 'android': android!.toMap(),
       if (ios != null) 'ios': ios!.toMap(),
+      if (firebaseProjectId != null) 'firebase_project_id': firebaseProjectId,
       if (dartDefines != null) 'dart_defines': dartDefines,
       if (dartDefineFromFile != null)
         'dart_define_from_file': dartDefineFromFile,

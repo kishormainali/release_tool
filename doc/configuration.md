@@ -32,6 +32,7 @@ environments:
 
 ### Global Settings
 - `project_name`: The name of your Flutter project.
+- `firebase_project_id`: The Firebase project id used by [`release_tool remote-config`](commands_reference.md#release_tool-remote-config) to update `fl_updater_latest_version` after a store release. Can also be set per-environment to override the shared value.
 
 ### Environment Level
 Under `environments`, you can define as many keys as you need (e.g. `dev`, `staging`, `prod`, `qa`).

@@ -6,6 +6,7 @@ import 'base_command.dart';
 import '../config/release_config.dart';
 import '../utils/fastlane_utils.dart';
 import '../utils/process_utils.dart';
+import '../utils/release_cache.dart';
 import '../utils/version_utils.dart';
 
 /// A command to build and deploy Flutter applications.
@@ -16,6 +17,11 @@ class DeployCommand extends BaseCommand {
   @override
   final String description =
       'Build and deploy Flutter applications using Fastlane.';
+
+  /// Marker line the `play_store`/`test_flight` Fastlane lanes print with
+  /// the version they actually shipped, since it's computed live from the
+  /// store's own data and can differ from pubspec.yaml.
+  static const _deployedVersionMarker = 'RELEASE_TOOL_DEPLOYED_VERSION=';
 
   /// Creates a new [DeployCommand].
   DeployCommand({required super.logger}) {
@@ -367,12 +373,20 @@ class DeployCommand extends BaseCommand {
       '$prefix Launching Fastlane deployment (lane: $fastlaneLane)...',
     );
 
+    String? deployedVersion;
     final fastlaneCode = await ProcessUtils.runWithPrefix(
       executable: fastlaneCmd.first,
       arguments: arguments,
       prefix: prefix,
       workingDirectory: p.join(projectDir.path, 'android'),
       environment: envVars,
+      onStdoutLine: (line) {
+        if (line.startsWith(_deployedVersionMarker)) {
+          deployedVersion = line
+              .substring(_deployedVersionMarker.length)
+              .trim();
+        }
+      },
     );
 
     if (fastlaneCode != 0) {
@@ -381,6 +395,13 @@ class DeployCommand extends BaseCommand {
       );
     } else {
       logger.success('$prefix Deployment completed successfully!');
+      _recordDeployedVersion(
+        envName: envConfig.name,
+        platform: 'android',
+        target: target,
+        capturedVersion: deployedVersion,
+        prefix: prefix,
+      );
     }
 
     return fastlaneCode;
@@ -532,12 +553,20 @@ class DeployCommand extends BaseCommand {
       '$prefix Launching Fastlane deployment (lane: $fastlaneLane)...',
     );
 
+    String? deployedVersion;
     final fastlaneCode = await ProcessUtils.runWithPrefix(
       executable: fastlaneCmd.first,
       arguments: arguments,
       prefix: prefix,
       workingDirectory: p.join(projectDir.path, 'ios'),
       environment: envVars,
+      onStdoutLine: (line) {
+        if (line.startsWith(_deployedVersionMarker)) {
+          deployedVersion = line
+              .substring(_deployedVersionMarker.length)
+              .trim();
+        }
+      },
     );
 
     if (fastlaneCode != 0) {
@@ -546,8 +575,43 @@ class DeployCommand extends BaseCommand {
       );
     } else {
       logger.success('$prefix Deployment completed successfully!');
+      _recordDeployedVersion(
+        envName: envConfig.name,
+        platform: 'ios',
+        target: target,
+        capturedVersion: deployedVersion,
+        prefix: prefix,
+      );
     }
 
     return fastlaneCode;
+  }
+
+  void _recordDeployedVersion({
+    required String envName,
+    required String platform,
+    required String target,
+    required String? capturedVersion,
+    required String prefix,
+  }) {
+    if (target != 'store') return;
+
+    if (capturedVersion == null || capturedVersion.isEmpty) {
+      logger.warn(
+        '$prefix Deployed successfully, but the released version could not be determined '
+        '(no $_deployedVersionMarker marker seen). Skipping release cache update — run '
+        '`release_tool update` to refresh Fastlane templates if this keeps happening.',
+      );
+      return;
+    }
+
+    ReleaseCache(projectDir).recordRelease(
+      envName: envName,
+      platform: platform,
+      version: capturedVersion,
+    );
+    logger.detail(
+      '$prefix Cached released version $capturedVersion for `release_tool remote-config`.',
+    );
   }
 }

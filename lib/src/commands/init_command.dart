@@ -173,6 +173,9 @@ secrets/
 # Fastlane Bundler Dependencies
 vendor/
 .bundle/
+
+# Centralized Release Tool local state (cached release versions, etc.)
+.release_tool/
 ''';
 
       if (!content.contains('Centralized Release Tool Secrets')) {

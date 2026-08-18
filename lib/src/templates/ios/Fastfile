@@ -6,6 +6,8 @@
 #
 
 require 'json'
+require 'net/http'
+require 'uri'
 
 default_platform(:ios)
 
@@ -123,6 +125,11 @@ platform :ios do
       skip_waiting_for_build_processing: true,
       changelog: @release_notes
     )
+
+    # Report the actual deployed version back to release_tool (pubspec.yaml
+    # is not the source of truth here — the version above was computed from
+    # the live TestFlight/App Store data).
+    puts "RELEASE_TOOL_DEPLOYED_VERSION=#{build_version}+#{build_number}"
   end
 
   # Device management
@@ -187,6 +194,20 @@ platform :ios do
     )
   end
 
+  #---------------------------------------------#
+  #     UPDATE FIREBASE REMOTE CONFIG           #
+  #     (fl_updater_latest_version, optionally  #
+  #     fl_updater_min_version for force update)#
+  #---------------------------------------------#
+  desc 'Update fl_updater_latest_version (and optionally fl_updater_min_version) in Firebase Remote Config'
+  lane :update_remote_config do
+    update_remote_config_parameter(
+      project_id: ENV['FIREBASE_PROJECT_ID'],
+      credentials_path: ENV['FIREBASE_SERVICE_JSON_FILE'],
+      updates_json: ENV['REMOTE_CONFIG_UPDATES'],
+      force_update: ENV['REMOTE_CONFIG_FORCE_UPDATE'] == 'true'
+    )
+  end
 
   # check if fvm is installed on system then use fvm flutter command
   # if not then use flutter command
@@ -353,6 +374,109 @@ platform :ios do
     cmd.concat(@dart_defines_list) if @dart_defines_list
 
     sh cmd.compact
+  end
+
+  #==================================================================#
+  #                                                                  #
+  #    HELPER: UPDATE A REMOTE CONFIG PARAMETER'S DEFAULT AND        #
+  #    PER-PLATFORM CONDITIONAL VALUES (used by :update_remote_config)#
+  #                                                                  #
+  #==================================================================#
+  def update_remote_config_parameter(project_id:, credentials_path:, updates_json:, force_update: false)
+    require 'googleauth'
+
+    UI.user_error!('FIREBASE_PROJECT_ID is required') if project_id.nil? || project_id.empty?
+    UI.user_error!('FIREBASE_SERVICE_JSON_FILE is required') if credentials_path.nil? || credentials_path.empty?
+    UI.user_error!("Service account file not found at #{credentials_path}") unless File.exist?(credentials_path.to_s)
+
+    updates = begin
+      JSON.parse(updates_json.to_s)
+    rescue StandardError
+      {}
+    end
+    UI.user_error!('No remote config updates provided (REMOTE_CONFIG_UPDATES is empty or invalid JSON)') if updates.empty?
+
+    # force_update also sets fl_updater_min_version to the same values as
+    # fl_updater_latest_version, which fl_updater treats as an immediate,
+    # non-dismissible mandatory update for anyone below it.
+    param_names = ['fl_updater_latest_version']
+    param_names << 'fl_updater_min_version' if force_update
+
+    condition_names = { 'android' => 'fl_updater_android', 'ios' => 'fl_updater_ios' }
+    condition_expressions = { 'android' => "device.os == 'android'", 'ios' => "device.os == 'ios'" }
+
+    scopes = ['https://www.googleapis.com/auth/firebase.remoteconfig']
+    authorizer = Google::Auth::ServiceAccountCredentials.make_creds(
+      json_key_io: File.open(credentials_path),
+      scope: scopes
+    )
+    access_token = authorizer.fetch_access_token!['access_token']
+
+    base_uri = URI("https://firebaseremoteconfig.googleapis.com/v1/projects/#{project_id}/remoteConfig")
+
+    # 1. Fetch the current template (the Remote Config API requires a
+    #    whole-template read-modify-write; there is no way to patch a
+    #    single parameter in isolation).
+    get_request = Net::HTTP::Get.new(base_uri)
+    get_request['Authorization'] = "Bearer #{access_token}"
+    get_response = Net::HTTP.start(base_uri.hostname, base_uri.port, use_ssl: true) { |http| http.request(get_request) }
+    unless get_response.code.to_i == 200
+      UI.user_error!("Failed to fetch Remote Config template: #{get_response.code} #{get_response.body}")
+    end
+
+    template = JSON.parse(get_response.body)
+    etag = get_response['ETag']
+
+    template['parameters'] ||= {}
+    template['conditions'] ||= []
+
+    param_names.each do |param_name|
+      param = template['parameters'][param_name] ||= {
+        'valueType' => 'STRING',
+        'defaultValue' => { 'value' => '' },
+        'conditionalValues' => {}
+      }
+      param['conditionalValues'] ||= {}
+
+      updates.each do |platform, version|
+        condition_name = condition_names[platform]
+        next if condition_name.nil?
+
+        unless template['conditions'].any? { |c| c['name'] == condition_name }
+          template['conditions'] << {
+            'name' => condition_name,
+            'expression' => condition_expressions[platform],
+            'tagColor' => 'BLUE'
+          }
+          UI.message("Created missing Remote Config condition '#{condition_name}' (#{condition_expressions[platform]})")
+        end
+
+        param['conditionalValues'][condition_name] = { 'value' => version.to_s }
+      end
+
+      # The default value (used by any device that doesn't match a platform
+      # condition) mirrors the first updated platform's version.
+      param['defaultValue'] = { 'value' => updates.values.first.to_s }
+    end
+
+    # 2. Write the modified template back, guarded by If-Match so a
+    #    concurrent Console edit is never silently clobbered.
+    put_request = Net::HTTP::Put.new(base_uri)
+    put_request['Authorization'] = "Bearer #{access_token}"
+    put_request['Content-Type'] = 'application/json; UTF8'
+    put_request['If-Match'] = etag
+    put_request.body = template.to_json
+
+    put_response = Net::HTTP.start(base_uri.hostname, base_uri.port, use_ssl: true) { |http| http.request(put_request) }
+
+    case put_response.code.to_i
+    when 200
+      UI.success("Updated Remote Config #{param_names.join(', ')}: #{updates}")
+    when 412
+      UI.user_error!('Remote Config template changed concurrently (ETag mismatch). Please retry.')
+    else
+      UI.user_error!("Failed to update Remote Config: #{put_response.code} #{put_response.body}")
+    end
   end
 
 end

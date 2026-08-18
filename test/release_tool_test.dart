@@ -7,6 +7,7 @@ import 'package:fp_release_tool/src/config/release_config.dart';
 import 'package:fp_release_tool/src/utils/version_utils.dart';
 import 'package:fp_release_tool/src/utils/project_utils.dart';
 import 'package:fp_release_tool/src/commands/update_command.dart';
+import 'package:fp_release_tool/src/utils/release_cache.dart';
 import 'package:fp_release_tool/src/utils/update_check_cache.dart';
 import 'package:mason_logger/mason_logger.dart';
 
@@ -56,6 +57,59 @@ dependencies:
 
       tempDir.deleteSync(recursive: true);
     });
+  });
+
+  group('Version Command Non-Interactive Behavior', () {
+    late Directory tempDir;
+    late String scriptPath;
+
+    setUp(() {
+      tempDir = Directory.systemTemp.createTempSync(
+        'release_tool_test_version_cmd',
+      );
+      scriptPath = p.join(Directory.current.path, 'bin/release_tool.dart');
+      File('${tempDir.path}/pubspec.yaml').writeAsStringSync('''
+name: test_app
+version: 1.0.0+1
+''');
+    });
+
+    tearDown(() {
+      tempDir.deleteSync(recursive: true);
+    });
+
+    test(
+      'fails with a clear error instead of hanging when no bump type is given',
+      () async {
+        final result = await Process.run('dart', [
+          'run',
+          scriptPath,
+          'version',
+        ], workingDirectory: tempDir.path);
+
+        expect(result.exitCode, 1);
+        expect(
+          result.stderr as String,
+          contains('Missing bump type argument in non-interactive environment'),
+        );
+      },
+    );
+
+    test(
+      'bumps the version without prompting for confirmation when a bump type is given',
+      () async {
+        final result = await Process.run('dart', [
+          'run',
+          scriptPath,
+          'version',
+          'patch',
+        ], workingDirectory: tempDir.path);
+
+        expect(result.exitCode, 0);
+        final pubspec = File('${tempDir.path}/pubspec.yaml').readAsStringSync();
+        expect(pubspec, contains('version: 1.0.1+2'));
+      },
+    );
   });
 
   group('Configuration Parser', () {
@@ -783,5 +837,347 @@ environments:
         contains('App Store Connect key file not found at: does/not/exist.p8'),
       );
     });
+  });
+
+  group('Release Cache', () {
+    late Directory tempDir;
+    late ReleaseCache cache;
+
+    setUp(() {
+      tempDir = Directory.systemTemp.createTempSync(
+        'release_tool_test_release_cache',
+      );
+      cache = ReleaseCache(tempDir);
+    });
+
+    tearDown(() {
+      tempDir.deleteSync(recursive: true);
+    });
+
+    test('read returns empty map when nothing is cached', () {
+      expect(cache.read('dev'), isEmpty);
+    });
+
+    test('recordRelease then read round-trips version per platform', () {
+      cache.recordRelease(
+        envName: 'dev',
+        platform: 'android',
+        version: '1.2.3+45',
+      );
+      cache.recordRelease(envName: 'dev', platform: 'ios', version: '1.2.3+46');
+
+      final result = cache.read('dev');
+      expect(result['android']!.version, '1.2.3+45');
+      expect(result['ios']!.version, '1.2.3+46');
+    });
+
+    test('recordRelease does not affect other environments', () {
+      cache.recordRelease(
+        envName: 'dev',
+        platform: 'android',
+        version: '1.0.0+1',
+      );
+      cache.recordRelease(
+        envName: 'prod',
+        platform: 'android',
+        version: '2.0.0+1',
+      );
+
+      expect(cache.read('dev')['android']!.version, '1.0.0+1');
+      expect(cache.read('prod')['android']!.version, '2.0.0+1');
+    });
+
+    test('clear removes only the specified platform', () {
+      cache.recordRelease(
+        envName: 'dev',
+        platform: 'android',
+        version: '1.0.0+1',
+      );
+      cache.recordRelease(envName: 'dev', platform: 'ios', version: '1.0.0+1');
+
+      cache.clear('dev', platform: 'android');
+
+      final result = cache.read('dev');
+      expect(result.containsKey('android'), false);
+      expect(result.containsKey('ios'), true);
+    });
+
+    test('clear with no platform removes the whole environment entry', () {
+      cache.recordRelease(
+        envName: 'dev',
+        platform: 'android',
+        version: '1.0.0+1',
+      );
+      cache.recordRelease(envName: 'dev', platform: 'ios', version: '1.0.0+1');
+
+      cache.clear('dev');
+
+      expect(cache.read('dev'), isEmpty);
+    });
+
+    test('malformed cache file is treated as empty rather than throwing', () {
+      final file = File(
+        p.join(tempDir.path, '.release_tool', 'latest_release_cache.json'),
+      );
+      file.createSync(recursive: true);
+      file.writeAsStringSync('not valid json');
+
+      expect(cache.read('dev'), isEmpty);
+      // Should not throw when writing over a corrupt file either.
+      cache.recordRelease(
+        envName: 'dev',
+        platform: 'android',
+        version: '1.0.0+1',
+      );
+      expect(cache.read('dev')['android']!.version, '1.0.0+1');
+    });
+  });
+
+  group('Remote Config Command', () {
+    late Directory tempDir;
+    late String scriptPath;
+
+    setUp(() {
+      tempDir = Directory.systemTemp.createTempSync(
+        'release_tool_test_remote_config',
+      );
+      scriptPath = p.join(Directory.current.path, 'bin/release_tool.dart');
+      Directory('${tempDir.path}/android').createSync(recursive: true);
+      File('${tempDir.path}/pubspec.yaml').writeAsStringSync('''
+name: test_app
+version: 1.0.0+1
+''');
+    });
+
+    tearDown(() {
+      tempDir.deleteSync(recursive: true);
+    });
+
+    void seedCache(String json) {
+      final dir = Directory(p.join(tempDir.path, '.release_tool'))
+        ..createSync(recursive: true);
+      File(
+        p.join(dir.path, 'latest_release_cache.json'),
+      ).writeAsStringSync(json);
+    }
+
+    test('fails when no release is cached for the environment', () async {
+      File('${tempDir.path}/release_config.yaml').writeAsStringSync('''
+environments:
+  dev:
+    android:
+      package_name: com.example.dev
+''');
+
+      final result = await Process.run('dart', [
+        'run',
+        scriptPath,
+        'remote-config',
+        '--env',
+        'dev',
+      ], workingDirectory: tempDir.path);
+
+      expect(result.exitCode, 1);
+      expect(
+        result.stderr as String,
+        contains('No cached release found for environment "dev"'),
+      );
+    });
+
+    test('fails when firebase_project_id is not configured', () async {
+      File('${tempDir.path}/release_config.yaml').writeAsStringSync('''
+environments:
+  dev:
+    android:
+      package_name: com.example.dev
+''');
+      seedCache(
+        '{"dev":{"android":{"version":"1.2.3+45","releasedAt":"2026-01-01T00:00:00.000Z"}}}',
+      );
+
+      final result = await Process.run('dart', [
+        'run',
+        scriptPath,
+        'remote-config',
+        '--env',
+        'dev',
+      ], workingDirectory: tempDir.path);
+
+      expect(result.exitCode, 1);
+      expect(
+        result.stderr as String,
+        contains('firebase_project_id is not configured'),
+      );
+    });
+
+    test('dry-run shows cached versions without clearing the cache', () async {
+      File('${tempDir.path}/release_config.yaml').writeAsStringSync('''
+shared:
+  firebase_project_id: my-firebase-project
+  firebase_service_json_file: firebase.json
+environments:
+  dev:
+    android:
+      package_name: com.example.dev
+''');
+      File('${tempDir.path}/firebase.json').writeAsStringSync('{}');
+      const cacheJson =
+          '{"dev":{"android":{"version":"1.2.3+45","releasedAt":"2026-01-01T00:00:00.000Z"}}}';
+      seedCache(cacheJson);
+
+      final result = await Process.run('dart', [
+        'run',
+        scriptPath,
+        'remote-config',
+        '--env',
+        'dev',
+        '--dry-run',
+      ], workingDirectory: tempDir.path);
+
+      expect(result.exitCode, 0);
+      expect(result.stdout as String, contains('android: 1.2.3+45'));
+      expect(result.stdout as String, contains('[Dry Run]'));
+
+      final cacheFile = File(
+        p.join(tempDir.path, '.release_tool', 'latest_release_cache.json'),
+      );
+      expect(cacheFile.readAsStringSync(), cacheJson);
+    });
+
+    test(
+      '--force-update dry-run mentions fl_updater_min_version and the mandatory-update warning',
+      () async {
+        File('${tempDir.path}/release_config.yaml').writeAsStringSync('''
+shared:
+  firebase_project_id: my-firebase-project
+  firebase_service_json_file: firebase.json
+environments:
+  dev:
+    android:
+      package_name: com.example.dev
+''');
+        File('${tempDir.path}/firebase.json').writeAsStringSync('{}');
+        seedCache(
+          '{"dev":{"android":{"version":"1.2.3+45","releasedAt":"2026-01-01T00:00:00.000Z"}}}',
+        );
+
+        final result = await Process.run('dart', [
+          'run',
+          scriptPath,
+          'remote-config',
+          '--env',
+          'dev',
+          '--force-update',
+          '--dry-run',
+        ], workingDirectory: tempDir.path);
+
+        expect(result.exitCode, 0);
+        final stdout = result.stdout as String;
+        expect(
+          stdout,
+          contains('fl_updater_latest_version and fl_updater_min_version'),
+        );
+        expect(stdout, contains('mandatory, non-dismissible update prompt'));
+      },
+    );
+
+    test(
+      'without --force-update, only fl_updater_latest_version is mentioned',
+      () async {
+        File('${tempDir.path}/release_config.yaml').writeAsStringSync('''
+shared:
+  firebase_project_id: my-firebase-project
+  firebase_service_json_file: firebase.json
+environments:
+  dev:
+    android:
+      package_name: com.example.dev
+''');
+        File('${tempDir.path}/firebase.json').writeAsStringSync('{}');
+        seedCache(
+          '{"dev":{"android":{"version":"1.2.3+45","releasedAt":"2026-01-01T00:00:00.000Z"}}}',
+        );
+
+        final result = await Process.run('dart', [
+          'run',
+          scriptPath,
+          'remote-config',
+          '--env',
+          'dev',
+          '--dry-run',
+        ], workingDirectory: tempDir.path);
+
+        expect(result.exitCode, 0);
+        final stdout = result.stdout as String;
+        expect(stdout, isNot(contains('fl_updater_min_version')));
+        expect(stdout, isNot(contains('mandatory, non-dismissible')));
+      },
+    );
+
+    test('--version requires --platform', () async {
+      File('${tempDir.path}/release_config.yaml').writeAsStringSync('''
+shared:
+  firebase_project_id: my-firebase-project
+  firebase_service_json_file: firebase.json
+environments:
+  dev:
+    android:
+      package_name: com.example.dev
+''');
+      File('${tempDir.path}/firebase.json').writeAsStringSync('{}');
+
+      final result = await Process.run('dart', [
+        'run',
+        scriptPath,
+        'remote-config',
+        '--env',
+        'dev',
+        '--version',
+        '3.0.0',
+      ], workingDirectory: tempDir.path);
+
+      expect(result.exitCode, 1);
+      expect(
+        result.stderr as String,
+        contains('--version requires --platform'),
+      );
+    });
+
+    test(
+      '--version with --platform publishes without needing a cached release',
+      () async {
+        File('${tempDir.path}/release_config.yaml').writeAsStringSync('''
+shared:
+  firebase_project_id: my-firebase-project
+  firebase_service_json_file: firebase.json
+environments:
+  dev:
+    android:
+      package_name: com.example.dev
+''');
+        File('${tempDir.path}/firebase.json').writeAsStringSync('{}');
+        // Deliberately no cache seeded — --version should bypass it entirely.
+
+        final result = await Process.run('dart', [
+          'run',
+          scriptPath,
+          'remote-config',
+          '--env',
+          'dev',
+          '--version',
+          '3.0.0',
+          '--platform',
+          'android',
+          '--dry-run',
+        ], workingDirectory: tempDir.path);
+
+        expect(result.exitCode, 0);
+        final stdout = result.stdout as String;
+        expect(
+          stdout,
+          contains('android: 3.0.0 (fl_updater_android, from --version)'),
+        );
+      },
+    );
   });
 }

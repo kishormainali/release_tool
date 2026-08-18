@@ -1,29 +1,27 @@
-# .github/workflows/pull-request.yml
 name: Review PR
+
 on:
   pull_request:
 
 jobs:
-  publish:
+  review:
+    name: Review PR
     runs-on: ubuntu-latest
     steps:
-      - name: 📚 Git Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: 🐦 Setup Dart
-        uses: dart-lang/setup-dart@v0
-        with:
-          channel: stable
-          cache: true
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@v1
 
-      - name: 📦 Install Dependencies
+      - name: Install dependencies
         run: dart pub get
 
-      - name: 📝 Format Code
+      - name: Verify formatting
         run: dart format --output=none --set-exit-if-changed .
 
-      - name: 📝 Analyze Code
-        run: dart analyze .
+      - name: Analyze code
+        run: dart analyze
 
-      - name: 🧪 Run Tests
+      - name: Run tests
         run: dart test

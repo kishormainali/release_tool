@@ -7,6 +7,7 @@ import 'package:fp_release_tool/src/config/release_config.dart';
 import 'package:fp_release_tool/src/utils/version_utils.dart';
 import 'package:fp_release_tool/src/utils/project_utils.dart';
 import 'package:fp_release_tool/src/commands/update_command.dart';
+import 'package:fp_release_tool/src/utils/update_check_cache.dart';
 import 'package:mason_logger/mason_logger.dart';
 
 void main() {
@@ -497,5 +498,137 @@ environments:
       // default environment should NOT be added since dev already existed
       expect((merged['environments'] as Map).containsKey('default'), false);
     });
+  });
+
+  group('Update Check Cache', () {
+    late Directory tempDir;
+    late File cacheFile;
+
+    setUp(() {
+      tempDir = Directory.systemTemp.createTempSync('release_tool_test_cache');
+      cacheFile = File(p.join(tempDir.path, 'update_check.json'));
+    });
+
+    tearDown(() {
+      tempDir.deleteSync(recursive: true);
+    });
+
+    test('read returns null when no cache file exists', () {
+      final cache = UpdateCheckCache(file: cacheFile);
+      expect(cache.read(), isNull);
+    });
+
+    test('write then read round-trips the latest version', () {
+      final cache = UpdateCheckCache(file: cacheFile);
+      cache.write('9.9.9');
+      expect(cache.read(), '9.9.9');
+    });
+
+    test(
+      'read returns null when the cached entry is older than the check interval',
+      () {
+        cacheFile.createSync(recursive: true);
+        cacheFile.writeAsStringSync(
+          jsonEncode({
+            'checkedAt': DateTime.now()
+                .subtract(UpdateCheckCache.checkInterval * 2)
+                .toIso8601String(),
+            'latestVersion': '9.9.9',
+          }),
+        );
+
+        final cache = UpdateCheckCache(file: cacheFile);
+        expect(cache.read(), isNull);
+      },
+    );
+
+    test('read returns null when the cache file contents are invalid', () {
+      cacheFile.createSync(recursive: true);
+      cacheFile.writeAsStringSync('not valid json');
+
+      final cache = UpdateCheckCache(file: cacheFile);
+      expect(cache.read(), isNull);
+    });
+  });
+
+  group('Doctor Command', () {
+    late Directory tempDir;
+    late String scriptPath;
+
+    setUp(() {
+      tempDir = Directory.systemTemp.createTempSync('release_tool_test_doctor');
+      scriptPath = p.join(Directory.current.path, 'bin/release_tool.dart');
+      File('${tempDir.path}/pubspec.yaml').writeAsStringSync('''
+name: test_app
+version: 1.0.0+1
+''');
+    });
+
+    tearDown(() {
+      tempDir.deleteSync(recursive: true);
+    });
+
+    test(
+      'fails with exit code 1 when android package_name is missing',
+      () async {
+        Directory('${tempDir.path}/android').createSync(recursive: true);
+        File('${tempDir.path}/release_config.yaml').writeAsStringSync('''
+environments:
+  dev:
+    flavor: dev
+    android: {}
+''');
+
+        final result = await Process.run('dart', [
+          'run',
+          scriptPath,
+          'doctor',
+          '--env',
+          'dev',
+        ], workingDirectory: tempDir.path);
+
+        expect(result.exitCode, 1);
+        final stdout = result.stdout as String;
+        expect(stdout, contains('Android: package_name is required.'));
+      },
+    );
+
+    test(
+      'exits 0 with warnings only when the ios environment is valid',
+      () async {
+        Directory('${tempDir.path}/ios').createSync(recursive: true);
+        File('${tempDir.path}/release_config.yaml').writeAsStringSync('''
+environments:
+  dev:
+    flavor: dev
+    ios:
+      bundle_id: com.example.dev
+      app_store_team_id: "TEAM_123"
+      match:
+        git_url: git@github.com:example/certs.git
+''');
+
+        final result = await Process.run(
+          'dart',
+          ['run', scriptPath, 'doctor', '--env', 'dev'],
+          environment: {
+            'ASC_KEY_ID': 'env-key-id-123',
+            'ASC_ISSUER_ID': 'env-issuer-id-456',
+            'ASC_KEY_CONTENT': 'env-key-content-789',
+          },
+          workingDirectory: tempDir.path,
+        );
+
+        expect(result.exitCode, 0);
+        final stdout = result.stdout as String;
+        expect(
+          stdout,
+          contains('iOS: App Store Connect API credentials resolved.'),
+        );
+        // The summary is logged via logger.warn, which mason_logger writes to stderr.
+        final stderr = result.stderr as String;
+        expect(stderr, contains('warning(s) found'));
+      },
+    );
   });
 }

@@ -26,6 +26,7 @@ class VersionCommand extends BaseCommand {
     if (!checkFlutterProject()) return 1;
 
     try {
+      final isInteractive = isInteractiveSession;
       final currentVersion = VersionUtils.readVersionFromPubspec(pubspecFile);
       logger.info('Current version: ${lightCyan.wrap(currentVersion)}');
 
@@ -43,6 +44,13 @@ class VersionCommand extends BaseCommand {
           return 1;
         }
       } else {
+        if (!isInteractive) {
+          logger.err(
+            'Missing bump type argument in non-interactive environment. '
+            'Usage: release_tool version <major|minor|patch|build>',
+          );
+          return 1;
+        }
         // Build preview choices for interactive selector
         final patchPreview = VersionUtils.bumpVersion(currentVersion, 'patch');
         final minorPreview = VersionUtils.bumpVersion(currentVersion, 'minor');
@@ -71,7 +79,8 @@ class VersionCommand extends BaseCommand {
 
       final newVersion = VersionUtils.bumpVersion(currentVersion, bumpType);
 
-      final skipConfirmation = argResults?['yes'] as bool? ?? false;
+      final skipConfirmation =
+          (argResults?['yes'] as bool? ?? false) || !isInteractive;
       if (!skipConfirmation) {
         final confirm = logger.confirm(
           'Are you sure you want to bump version from ${lightCyan.wrap(currentVersion)} to ${green.wrap(newVersion)}?',
